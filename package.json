@@ -1,0 +1,20 @@
+{
+    "name": "swift-movers",
+    "version": "1.0.0",
+    "description": "Premium Moving Company Management System",
+    "main": "server.js",
+    "scripts": {
+        "start": "node server.js",
+        "dev": "node server.js"
+    },
+    "keywords": [
+        "moving",
+        "management",
+        "spa"
+    ],
+    "author": "Antigravity",
+    "license": "ISC",
+    "dependencies": {
+        "express": "^4.22.1"
+    }
+}

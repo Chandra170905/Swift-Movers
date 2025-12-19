@@ -1,0 +1,108 @@
+/* Calendar Styles */
+.calendar-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 1.5rem;
+}
+
+.calendar-grid {
+    display: grid;
+    grid-template-columns: repeat(7, 1fr);
+    gap: 1px;
+    background: var(--border);
+    border: 1px solid var(--border);
+    border-radius: var(--radius-md);
+    overflow: hidden;
+}
+
+.calendar-day-header {
+    background: var(--bg-dark);
+    padding: 1rem;
+    text-align: center;
+    font-weight: 600;
+    color: var(--text-muted);
+}
+
+.calendar-day {
+    background: var(--bg-card);
+    min-height: 120px;
+    padding: 0.5rem;
+    position: relative;
+}
+
+.calendar-day.other-month {
+    background: var(--bg-main);
+    color: var(--text-muted);
+}
+
+.calendar-day.today {
+    background: rgba(56, 189, 248, 0.05);
+}
+
+.calendar-date {
+    font-size: 0.85rem;
+    color: var(--text-muted);
+    margin-bottom: 0.5rem;
+    display: block;
+}
+
+.calendar-event {
+    background: rgba(56, 189, 248, 0.15);
+    color: var(--secondary);
+    padding: 2px 6px;
+    border-radius: 4px;
+    font-size: 0.75rem;
+    margin-bottom: 4px;
+    cursor: pointer;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    border-left: 2px solid var(--secondary);
+}
+
+.calendar-event:hover {
+    background: rgba(56, 189, 248, 0.25);
+}
+
+/* Print Styles for Invoice */
+@media print {
+
+    #sidebar,
+    #btn-profile,
+    #page-title,
+    .nav-item,
+    .calendar-header {
+        display: none !important;
+    }
+
+    main {
+        margin: 0 !important;
+        padding: 0 !important;
+        width: 100% !important;
+    }
+
+    .card {
+        box-shadow: none !important;
+        border: none !important;
+    }
+
+    /* Hide everything except invoice when invoice modal is open? 
+       Actually, better to have a dedicated print class 
+    */
+    body>*:not(#invoice-view) {
+        display: none !important;
+    }
+
+    #invoice-view {
+        display: block !important;
+        position: absolute;
+        top: 0;
+        left: 0;
+        width: 100%;
+        height: 100%;
+        background: white;
+        color: black;
+        z-index: 9999;
+    }
+}
