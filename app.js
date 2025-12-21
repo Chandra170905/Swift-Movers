@@ -3,6 +3,14 @@ const app = {
     currentPage: 'dashboard',
     user: null,
     theme: 'dark',
+    data: {
+        quotes: [],
+        inventory: [],
+        claims: [],
+        stats: { quotes: 0, moves: 0, revenue: 0, claims: 0 },
+        activities: [],
+        trucks: []
+    },
 
     // Core Methods
     async init() {
@@ -287,7 +295,7 @@ const app = {
                     </div>
                     <div class="card stat-card">
                         <h3>Revenue</h3>
-                        <div class="value">$${stats.revenue.toLocaleString()}</div>
+                        <div class="value">₹${stats.revenue.toLocaleString()}</div>
                     </div>
                     <div class="card stat-card">
                         <h3>Total Claims</h3>
@@ -318,8 +326,7 @@ const app = {
             return `
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                        <h3>Active Quotes</h3>
-                        <button class="btn-primary" onclick="app.toggleQuoteModal()">+ New Quote</button>
+                        <h3>Quote Requests</h3>
                     </div>
 
                     <div style="overflow-x: auto;">
@@ -341,150 +348,216 @@ const app = {
                     </div>
                 </div>
 
-                <!-- Simple Modal for New Quote -->
-    <div id="quote-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
-        <div class="card" style="width: 90%; max-width: 500px;">
-            <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem;">
-                <h3>New Quote</h3>
-                <button onclick="app.toggleQuoteModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem;">&times;</button>
-            </div>
-            <form onsubmit="app.handleQuoteSubmit(event)">
-                <input type="text" name="name" placeholder="Customer Name" required>
-                    <div style="display: grid; grid-template-columns: 1fr 1fr; gap: 1rem;">
-                        <input type="text" name="origin" placeholder="Origin Zip" required>
-                            <input type="text" name="dest" placeholder="Dest Zip" required>
+
+                <!-- Set Price & Approve Modal -->
+                <div id="approve-modal" class="modal">
+                    <div class="modal-content" style="max-width: 400px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 2rem;">
+                            <h3>Set Price & Approve</h3>
+                            <button onclick="app.closeApproveModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem;">&times;</button>
+                        </div>
+                        <form onsubmit="app.handleApproveWithPrice(event)">
+                            <div class="form-group">
+                                <label>Final Price (₹)</label>
+                                <input type="number" name="amount" placeholder="Enter quote amount" required>
                             </div>
-                            <input type="date" name="date" required>
-                                <input type="number" name="amount" placeholder="Estimated Amount ($)" required>
-                                    <button type="submit" class="btn-primary" style="width: 100%;">Create Quote</button>
-                                </form>
-                            </div>
+                            <input type="hidden" name="quoteId">
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Approve Quote</button>
+                        </form>
                     </div>
-                    `;
+                </div>
+                `;
         },
         calculator() {
             return `
                     <div class="card" style="max-width: 600px; margin: 0 auto;">
                         <h3>Move Cost Estimator</h3>
                         <div style="margin-top: 2rem;">
-                            <label>Distance (miles)</label>
-                            <input type="number" id="calc-distance" placeholder="0">
-
+                            <div class="form-group">
+                                <label>Distance (km)</label>
+                                <input type="number" id="calc-distance" placeholder="0" value="10">
+                            </div>
+ 
+                            <div class="form-group">
                                 <label>Home Size</label>
                                 <select id="calc-size">
-                                    <option value="1">Studio</option>
-                                    <option value="2">1 Bedroom</option>
-                                    <option value="3">2 Bedrooms</option>
-                                    <option value="4">3+ Bedrooms</option>
+                                    <option value="1">Studio / Small Apt</option>
+                                    <option value="2">2 Bedroom Home</option>
+                                    <option value="3">3-4 Bedroom Home</option>
+                                    <option value="5">Large Estate</option>
                                 </select>
+                            </div>
 
-                                <div style="margin-top: 1rem; padding: 1rem; background: var(--bg-dark); border-radius: var(--radius-sm);">
-                                    <span style="color: var(--text-muted);">Estimated Cost:</span>
-                                    <div id="calc-result" class="value" style="font-size: 2rem; color: var(--secondary); font-weight: 700;">$0</div>
-                                </div>
+                            <div class="form-group">
+                                <label>Access & Logistics</label>
+                                <select id="calc-access">
+                                    <option value="1.0">Ground Floor / Elevator</option>
+                                    <option value="1.2">Stairs (2nd Floor)</option>
+                                    <option value="1.4">Stairs (3rd+ Floor)</option>
+                                    <option value="1.1">Long Walk (>100ft)</option>
+                                </select>
+                            </div>
+
+                            <div class="form-group" style="display: flex; align-items: center; gap: 0.75rem; margin-bottom: 2rem;">
+                                <input type="checkbox" id="calc-packing" style="width: auto;">
+                                <label for="calc-packing" style="margin: 0;">Include Full Packing Service</label>
+                            </div>
+ 
+                            <div style="margin-top: 1rem; padding: 2rem; background: var(--bg-dark); border-radius: var(--radius-sm); text-align: center;">
+                                <p style="font-size: 0.85rem; color: var(--text-muted); margin-bottom: 0.5rem;">Estimated Total</p>
+                                <div id="calc-result" class="value" style="font-size: 2.5rem; color: var(--secondary); font-weight: 700;">₹0.00</div>
+                                <button onclick="app.saveCalcAsQuote()" class="btn-primary" style="margin-top: 1.5rem; width: 100%;">
+                                    <i data-feather="file-plus" style="width: 16px; height: 16px; margin-right: 0.5rem; vertical-align: middle;"></i> Save as Quote
+                                </button>
+                            </div>
                         </div>
                     </div>
-                    `;
+                `;
         },
         schedule() {
             return `
-                    <div class="card">
-                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                            <h3>Upcoming Moves</h3>
-                            <div style="display: flex; gap: 0.5rem;">
-                                <button class="btn-primary" style="background: var(--bg-dark); border: 1px solid var(--border);">Filter by Date</button>
-                            </div>
-                        </div>
-                        <div id="schedule-list" style="display: grid; gap: 1rem;">
-                            <!-- Schedule items here -->
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                        <h3>Upcoming Moves</h3>
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button class="btn-primary" style="background: var(--bg-dark); border: 1px solid var(--border);">Filter by Date</button>
                         </div>
                     </div>
-                    `;
+                    <div id="schedule-list" style="display: grid; gap: 1rem;">
+                        <!-- Schedule items here -->
+                    </div>
+                </div>
+
+                <!-- Reschedule Modal -->
+                <div id="reschedule-modal" class="modal">
+                    <div class="modal-content" style="max-width: 400px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 2rem;">
+                            <h3>Edit Job Details</h3>
+                            <button onclick="app.closeRescheduleModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem;">&times;</button>
+                        </div>
+                        <form onsubmit="app.handleReschedule(event)">
+                            <div class="form-group">
+                                <label>Date</label>
+                                <input type="date" name="date" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Time</label>
+                                <input type="time" name="time" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Price (₹)</label>
+                                <input type="number" name="amount" required>
+                            </div>
+                            <input type="hidden" name="quoteId">
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Update Details</button>
+                        </form>
+                    </div>
+                </div>
+                `;
         },
         inventory() {
             return `
-                    <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
-                        <div class="card">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                                <h3>Warehouse Storage</h3>
-                                <span id="total-items" style="color: var(--text-muted);">0 Items</span>
-                            </div>
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
-                                        <th style="padding: 0.5rem;">Item</th>
-                                        <th style="padding: 0.5rem;">Category</th>
-                                        <th style="padding: 0.5rem;">Vol (ft³)</th>
-                                        <th style="padding: 0.5rem;"></th>
-                                    </tr>
-                                </thead>
-                                <tbody id="inventory-list">
-                                    <!-- Items here -->
-                                </tbody>
-                            </table>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                            <h3>Warehouse Storage</h3>
+                            <span id="total-items" style="color: var(--text-muted);">0 Items</span>
                         </div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                    <th style="padding: 0.5rem;">Item</th>
+                                    <th style="padding: 0.5rem;">Category</th>
+                                    <th style="padding: 0.5rem;">Vol (ft³)</th>
+                                    <th style="padding: 0.5rem;"></th>
+                                </tr>
+                            </thead>
+                            <tbody id="inventory-list">
+                                <!-- Items here -->
+                            </tbody>
+                        </table>
+                    </div>
 
-                        <div class="card" style="height: fit-content;">
-                            <h3>Add Item</h3>
-                            <form onsubmit="app.handleInventorySubmit(event)" style="margin-top: 1.5rem;">
-                                <input type="text" name="item" placeholder="Item Name" required>
-                                    <select name="category">
-                                        <option value="Furniture">Furniture</option>
-                                        <option value="Electronics">Electronics</option>
-                                        <option value="Boxes">Boxes</option>
-                                        <option value="Fragile">Fragile</option>
-                                    </select>
-                                    <input type="number" name="volume" placeholder="Volume (ft³)" required>
-                                        <button type="submit" class="btn-primary" style="width: 100%;">Add to Inventory</button>
-                                    </form>
-                                </div>
-                        </div>
-                        `;
+                    <div class="card" style="height: fit-content;">
+                        <h3>Add Item</h3>
+                        <form onsubmit="app.handleInventorySubmit(event)" style="margin-top: 1.5rem;">
+                            <div class="form-group">
+                                <label>Item Name</label>
+                                <input type="text" name="item" placeholder="e.g. Sofa" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Category</label>
+                                <select name="category">
+                                    <option value="Furniture">Furniture</option>
+                                    <option value="Electronics">Electronics</option>
+                                    <option value="Boxes">Boxes</option>
+                                    <option value="Fragile">Fragile</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Volume (ft³)</label>
+                                <input type="number" name="volume" placeholder="10" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Add to Inventory</button>
+                        </form>
+                    </div>
+                </div>
+            `;
         },
         claims() {
             return `
-                        <div class="card">
-                            <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                                <h3>Insurance Claims</h3>
-                                <button class="btn-primary" onclick="app.toggleClaimModal()">+ File Claim</button>
-                            </div>
-                            <table style="width: 100%; border-collapse: collapse;">
-                                <thead>
-                                    <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
-                                        <th style="padding: 1rem;">Claim ID</th>
-                                        <th style="padding: 1rem;">Customer</th>
-                                        <th style="padding: 1rem;">Type</th>
-                                        <th style="padding: 1rem;">Amount</th>
-                                        <th style="padding: 1rem;">Status</th>
-                                    </tr>
-                                </thead>
-                                <tbody id="claims-list">
-                                    <!-- Claims here -->
-                                </tbody>
-                            </table>
-                        </div>
+                <div class="card">
+                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                        <h3>Insurance Claims</h3>
+                    </div>
+                    <table style="width: 100%; border-collapse: collapse;">
+                        <thead>
+                            <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                <th style="padding: 1rem;">Claim ID</th>
+                                <th style="padding: 1rem;">Customer</th>
+                                <th style="padding: 1rem;">Type</th>
+                                <th style="padding: 1rem;">Amount</th>
+                                <th style="padding: 1rem;">Status</th>
+                                <th style="padding: 1rem;">Actions</th>
+                            </tr>
+                        </thead>
+                        <tbody id="claims-list">
+                            <!-- Claims here -->
+                        </tbody>
+                    </table>
+                </div>
 
-                        <!-- Claim Modal -->
-                        <div id="claim-modal" style="display: none; position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,0.8); z-index: 1000; align-items: center; justify-content: center;">
-                            <div class="card" style="width: 90%; max-width: 500px;">
-                                <div style="display: flex; justify-content: space-between; margin-bottom: 1.5rem;">
-                                    <h3>File New Claim</h3>
-                                    <button onclick="app.toggleClaimModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem;">&times;</button>
-                                </div>
-                                <form onsubmit="app.handleClaimSubmit(event)">
-                                    <input type="text" name="name" placeholder="Customer Name" required value="${app.user ? app.user.name : ''}">
-                                    <select name="type" style="width: 100%; padding: 0.75rem; background: rgba(15, 23, 42, 0.6); border: 1px solid var(--border); border-radius: var(--radius-sm); color: white; margin-bottom: 1rem;">
-                                        <option value="Damaged Item">Damaged Item</option>
-                                        <option value="Lost Box">Lost Box</option>
-                                        <option value="Delay">Delay</option>
-                                        <option value="Other">Other</option>
-                                    </select>
-                                    <input type="number" name="amount" placeholder="Claim Amount ($)" required>
-                                    <button type="submit" class="btn-primary" style="width: 100%;">Submit Claim</button>
-                                </form>
-                            </div>
+                <!-- Process Claim Modal -->
+                <div id="process-modal" class="modal">
+                    <div class="modal-content">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                            <h3>Process Claim</h3>
+                            <button onclick="app.closeProcessModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer;"><i data-feather="x"></i></button>
                         </div>
-                        `;
+                        <form id="process-form" onsubmit="app.handleProcessClaim(event)">
+                            <div class="form-group">
+                                <label>Decision</label>
+                                <select name="status" required>
+                                    <option value="Approved">Approve for Payment</option>
+                                    <option value="Settled">Mark as Settled (Paid)</option>
+                                    <option value="Denied">Deny Claim</option>
+                                    <option value="Under Review">Back to Review</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Settlement Amount (₹)</label>
+                                <input type="number" name="settledAmount" value="0">
+                            </div>
+                            <div class="form-group">
+                                <label>Admin Notes</label>
+                                <textarea name="adminNotes" rows="3" placeholder="Reason for decision, check number, etc."></textarea>
+                            </div>
+                            <input type="hidden" name="id">
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Update Claim Record</button>
+                        </form>
+                    </div>
+                </div>
+`;
         },
         notifications() {
             const list = app.data.notifications.length ? app.data.notifications.map(n => `
@@ -600,6 +673,10 @@ const app = {
                                 <option value="26ft Box Truck">26ft Box Truck</option>
                                 <option value="16ft Box Truck">16ft Box Truck</option>
                                 <option value="Sprinter Van">Sprinter Van</option>
+                                <option value="Pickup Truck">Pickup Truck</option>
+                                <option value="Cargo Van">Cargo Van</option>
+                                <option value="Flatbed Truck">Flatbed Truck</option>
+                                <option value="Refrigerated Truck">Refrigerated Truck</option>
                                 <option value="Trailer">Trailer</option>
                             </select>
                             <input type="number" name="capacity" placeholder="Capacity (ft³)" required>
@@ -607,7 +684,7 @@ const app = {
                         </form>
                     </div>
                 </div>
-            `;
+`;
         }
     },
 
@@ -668,26 +745,26 @@ const app = {
                     <option value="">Assign Truck...</option>
                     ${this.data.trucks.map(t => `<option value="${t.truckId}" ${q.truckId === t.truckId ? 'selected' : ''}>${t.truckId}</option>`).join('')}
                 </select>
-            `;
+    `;
 
             return `
                 <tr style="border-bottom: 1px solid var(--border);">
                     <td style="padding: 1rem; font-weight: 500;">${q.name}</td>
                     <td style="padding: 1rem; color: var(--text-muted);">${q.origin} &rarr; ${q.dest}</td>
                     <td style="padding: 1rem;">${q.date}</td>
-                    <td style="padding: 1rem;">$${q.amount}</td>
+                    <td style="padding: 1rem;">₹${q.amount}</td>
                     <td style="padding: 1rem;"><span style="padding: 0.25rem 0.5rem; background: ${q.status === 'Approved' ? 'rgba(6, 182, 212, 0.2)' : 'rgba(217, 70, 239, 0.2)'}; color: ${q.status === 'Approved' ? 'var(--secondary)' : 'var(--accent)'}; border-radius: 4px; font-size: 0.75rem;">${q.status}</span></td>
                     <td style="padding: 1rem;">
                         <div style="display: flex; flex-direction: column; gap: 0.5rem;">
                             ${q.status === 'Approved' ? truckSelect : ''}
                             <div style="display: flex; gap: 0.5rem;">
-                                ${q.status === 'Pending' ? `<button onclick="app.approveQuote('${q._id}')" class="icon-btn" style="width: 30px; height: 30px; color: var(--secondary);" title="Approve"><i data-feather="check"></i></button>` : ''}
+                                ${q.status === 'Pending' ? `<button onclick="app.openApproveModal('${q._id}')" class="icon-btn" style="width: 30px; height: 30px; color: var(--secondary);" title="Set Price & Approve"><i data-feather="check"></i></button>` : ''}
                                 <button onclick="app.deleteQuote('${q._id}')" class="icon-btn" style="width: 30px; height: 30px; color: #ef4444;" title="Delete"><i data-feather="trash-2"></i></button>
                             </div>
                         </div>
                     </td>
                 </tr>
-            `;
+    `;
         }).join('');
         feather.replace();
     },
@@ -705,7 +782,7 @@ const app = {
             if (idx !== -1) {
                 this.data.quotes[idx] = updated;
             }
-            this.addNotification('Truck Assigned', `Truck ${truckId || 'None'} assigned to ${updated.name}`, 'success');
+            this.addNotification('Truck Assigned', `Truck ${truckId || 'None'} assigned to ${updated.name} `, 'success');
             // No need to full re-render here if we just want to update the local state, 
             // but for simplicity and showing the result in schedule:
             this.renderQuotesTable();
@@ -714,22 +791,44 @@ const app = {
         }
     },
 
-    async approveQuote(id) {
+    openApproveModal(quoteId) {
+        const quote = this.data.quotes.find(q => q._id === quoteId);
+        if (!quote) return;
+
+        const modal = document.getElementById('approve-modal');
+        const form = modal.querySelector('form');
+        form.elements['quoteId'].value = quoteId;
+        form.elements['amount'].value = ''; // Clear previous value
+
+        modal.style.display = 'flex';
+    },
+
+    closeApproveModal() {
+        document.getElementById('approve-modal').style.display = 'none';
+    },
+
+    async handleApproveWithPrice(e) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const quoteId = formData.get('quoteId');
+        const amount = parseFloat(formData.get('amount'));
+
         try {
-            const res = await fetch(`/api/quotes/${id}`, {
+            const res = await fetch(`/api/quotes/${quoteId}`, {
                 method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ status: 'Approved' })
+                body: JSON.stringify({ status: 'Approved', amount })
             });
             const updated = await res.json();
 
             // Update local state
-            const idx = this.data.quotes.findIndex(q => q._id === id);
+            const idx = this.data.quotes.findIndex(q => q._id === quoteId);
             if (idx !== -1) {
                 this.data.quotes[idx] = updated;
-                this.addNotification('Quote Approved', `Quote for ${updated.name} has been approved.`, 'success');
+                this.addNotification('Quote Approved', `Quote for ${updated.name} approved at ₹${amount.toLocaleString()}`, 'success');
             }
 
+            this.closeApproveModal();
             this.renderQuotesTable();
         } catch (err) {
             console.error('Error approving quote', err);
@@ -740,13 +839,20 @@ const app = {
         if (!confirm('Are you sure you want to delete this quote?')) return;
 
         try {
-            await fetch(`/api/quotes/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/quotes/${id}`, { method: 'DELETE' });
 
-            // Remove from local state
-            this.data.quotes = this.data.quotes.filter(q => q._id !== id);
-            this.renderQuotesTable();
+            if (res.ok) {
+                // Remove from local state
+                this.data.quotes = this.data.quotes.filter(q => q._id !== id);
+                this.addNotification('Quote Deleted', 'Quote request has been removed', 'success');
+                this.renderQuotesTable();
+
+                // Refresh stats
+                await this.fetchInitialData();
+            }
         } catch (err) {
             console.error('Error deleting quote', err);
+            alert('Failed to delete quote. Please try again.');
         }
     },
 
@@ -796,26 +902,103 @@ const app = {
         }
 
         list.innerHTML = scheduledMoves.map(item => `
-                        <div style="background: var(--bg-dark); padding: 1rem; border-radius: var(--radius-sm); border-left: 4px solid var(--primary); display: flex; justify-content: space-between; align-items: center;">
-                            <div>
-                                <h4 style="margin-bottom: 0.25rem;">${item.name}</h4>
-                                <p style="color: var(--text-muted); font-size: 0.875rem;">
-                                    <i data-feather="map-pin" style="width:14px;height:14px;"></i> ${item.origin} &rarr; ${item.dest}
-                                </p>
-                                <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
-                                    <span style="font-size: 0.75rem; padding: 2px 6px; background: rgba(56, 189, 248, 0.1); color: var(--secondary); border-radius: 4px;">
-                                        Truck: ${item.truckId || 'Not Assigned'}
-                                    </span>
-                                    <span style="font-size: 0.75rem; padding: 2px 6px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border-radius: 4px;">Crew: 3</span>
-                                </div>
-                            </div>
-                            <div style="text-align: right;">
-                                <div style="font-weight: 600; color: var(--secondary);">${item.date}</div>
-                                <div style="color: var(--text-muted); font-size: 0.875rem;">09:00 AM</div>
-                            </div>
+                <div style="background: var(--bg-dark); padding: 1rem; border-radius: var(--radius-sm); border-left: 4px solid var(--primary); display: flex; justify-content: space-between; align-items: center;">
+                    <div>
+                        <h4 style="margin-bottom: 0.25rem;">${item.name}</h4>
+                        <p style="color: var(--text-muted); font-size: 0.875rem;">
+                            <i data-feather="map-pin" style="width:14px;height:14px;"></i> ${item.origin} &rarr; ${item.dest}
+                        </p>
+                        <div style="margin-top: 0.5rem; display: flex; gap: 0.5rem; flex-wrap: wrap;">
+                            <span style="font-size: 0.75rem; padding: 2px 6px; background: rgba(56, 189, 248, 0.1); color: var(--secondary); border-radius: 4px;">
+                                Truck: ${item.truckId || 'Not Assigned'}
+                            </span>
+                            <span style="font-size: 0.75rem; padding: 2px 6px; background: rgba(255, 255, 255, 0.05); color: var(--text-muted); border-radius: 4px;">Crew: 3</span>
                         </div>
-                        `).join('');
+                    </div>
+                    <div style="text-align: right; display: flex; flex-direction: column; gap: 0.5rem; align-items: flex-end;">
+                        <div>
+                            <div style="font-weight: 600; color: var(--secondary);">${item.date}</div>
+                            <div style="color: var(--text-muted); font-size: 0.875rem;">${item.time || '09:00 AM'}</div>
+                        </div>
+                        <button onclick="app.openRescheduleModal('${item._id}')" class="icon-btn" style="color: var(--secondary);" title="Reschedule">
+                            <i data-feather="calendar" style="width: 16px; height: 16px;"></i>
+                        </button>
+                    </div>
+                </div>
+            `).join('');
         feather.replace();
+    },
+
+    openRescheduleModal(quoteId) {
+        const quote = this.data.quotes.find(q => q._id === quoteId);
+        if (!quote) return;
+
+        const modal = document.getElementById('reschedule-modal');
+        const form = modal.querySelector('form');
+        form.elements['quoteId'].value = quoteId;
+        form.elements['date'].value = quote.date;
+        form.elements['amount'].value = quote.amount;
+
+        // Convert '09:00 AM' style to '09:00' for input type="time"
+        if (quote.time) {
+            let [time, modifier] = quote.time.split(' ');
+            let [hours, minutes] = time.split(':');
+            if (modifier === 'PM' && hours !== '12') hours = parseInt(hours) + 12;
+            if (modifier === 'AM' && hours === '12') hours = '00';
+            form.elements['time'].value = `${hours.toString().padStart(2, '0')}:${minutes}`;
+        }
+
+        modal.style.display = 'flex';
+    },
+
+    closeRescheduleModal() {
+        document.getElementById('reschedule-modal').style.display = 'none';
+    },
+
+    async handleReschedule(e) {
+        e.preventDefault();
+        console.log('Debug: handleReschedule called');
+        const formData = new FormData(e.target);
+        const quoteId = formData.get('quoteId');
+
+        // Convert 24h time to 12h AM/PM for display consistency
+        const timeInput = formData.get('time');
+        let [hours, minutes] = timeInput.split(':');
+        const modifier = hours >= 12 ? 'PM' : 'AM';
+        hours = hours % 12 || 12;
+        const formattedTime = `${hours.toString().padStart(2, '0')}:${minutes} ${modifier}`;
+
+        const update = {
+            date: formData.get('date'),
+            time: formattedTime,
+            amount: parseFloat(formData.get('amount'))
+        };
+
+        console.log('Update Data Sent:', quoteId, update);
+
+        try {
+            const res = await fetch(`/api/quotes/${quoteId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(update)
+            });
+
+            if (res.ok) {
+                const updatedQuote = await res.json();
+                console.log('Update Response Received:', updatedQuote);
+                const idx = this.data.quotes.findIndex(q => q._id === quoteId);
+                if (idx !== -1) {
+                    this.data.quotes[idx] = updatedQuote;
+                    console.log('Local State Updated:', this.data.quotes[idx]);
+                }
+
+                this.addNotification('Job Updated', `Updated details for ${updatedQuote.name}`, 'success');
+                this.closeRescheduleModal();
+                this.initSchedule();
+            }
+        } catch (err) {
+            console.error('Error updating job', err);
+        }
     },
 
     initInventory() {
@@ -830,15 +1013,15 @@ const app = {
         count.textContent = `${this.data.inventory.length} Items`;
 
         tbody.innerHTML = this.data.inventory.map(item => `
-                        <tr style="border-bottom: 1px solid var(--border);">
-                            <td style="padding: 0.75rem 0.5rem; font-weight: 500;">${item.item}</td>
-                            <td style="padding: 0.75rem 0.5rem; color: var(--text-muted); font-size: 0.9rem;">${item.category}</td>
-                            <td style="padding: 0.75rem 0.5rem;">${item.volume}</td>
-                            <td style="padding: 0.75rem 0.5rem; text-align: right;">
-                                <button onclick="app.removeInventory('${item._id}')" style="background: none; border: none; color: #ef4444; cursor: pointer;"><i data-feather="trash-2" style="width: 16px; height: 16px;"></i></button>
-                            </td>
-                        </tr>
-                        `).join('');
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 0.75rem 0.5rem; font-weight: 500;">${item.item}</td>
+                    <td style="padding: 0.75rem 0.5rem; color: var(--text-muted); font-size: 0.9rem;">${item.category}</td>
+                    <td style="padding: 0.75rem 0.5rem;">${item.volume}</td>
+                    <td style="padding: 0.75rem 0.5rem; text-align: right;">
+                        <button onclick="app.removeInventory('${item._id}')" style="background: none; border: none; color: #ef4444; cursor: pointer;"><i data-feather="trash-2" style="width: 16px; height: 16px;"></i></button>
+                    </td>
+                </tr>
+            `).join('');
         feather.replace();
     },
 
@@ -882,72 +1065,148 @@ const app = {
         const tbody = document.getElementById('claims-list');
         if (!tbody) return;
 
-        tbody.innerHTML = this.data.claims.map(c => `
-                        <tr style="border-bottom: 1px solid var(--border);">
-                            <td style="padding: 1rem; color: var(--primary); font-family: monospace;">${c._id ? c._id.substring(0, 8) : 'Pending'}</td>
-                            <td style="padding: 1rem;">${c.name}</td>
-                            <td style="padding: 1rem;">${c.type}</td>
-                            <td style="padding: 1rem;">$${c.amount}</td>
-                            <td style="padding: 1rem;">
-                                <span style="padding: 0.25rem 0.5rem; background: rgba(255, 255, 255, 0.1); border-radius: 4px; font-size: 0.75rem;">${c.status}</span>
-                            </td>
-                        </tr>
-                        `).join('');
+        tbody.innerHTML = this.data.claims.map(c => {
+            let statusStyle = 'background: rgba(255, 255, 255, 0.1); color: white;';
+            if (c.status === 'Settled') statusStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981;';
+            if (c.status === 'Denied') statusStyle = 'background: rgba(239, 68, 68, 0.1); color: #ef4444;';
+            if (c.status === 'Approved') statusStyle = 'background: rgba(6, 182, 212, 0.1); color: var(--secondary);';
+
+            return `
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 1rem; color: var(--primary); font-family: monospace;">${c._id ? c._id.substring(0, 8) : 'Pending'}</td>
+                    <td style="padding: 1rem;">${c.name}</td>
+                    <td style="padding: 1rem;">${c.type}</td>
+                    <td style="padding: 1rem;">₹${c.amount}</td>
+                    <td style="padding: 1rem;">
+                        <span style="padding: 0.25rem 0.5rem; border-radius: 4px; font-size: 0.75rem; ${statusStyle}">${c.status}</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <button onclick="app.openProcessModal('${c._id}')" class="icon-btn" style="color: var(--secondary);" title="Process Claim">
+                                <i data-feather="settings" style="width: 16px; height: 16px;"></i>
+                            </button>
+                            ${c.status === 'Settled' ? `
+                            <button onclick="app.removeClaim('${c._id}')" class="icon-btn" style="color: #ef4444;" title="Remove Settled Claim">
+                                <i data-feather="trash-2" style="width: 16px; height: 16px;"></i>
+                            </button>` : ''}
+                        </div>
+                    </td>
+                </tr>
+            `;
+        }).join('');
+        feather.replace();
     },
 
-    toggleClaimModal() {
-        const modal = document.getElementById('claim-modal');
-        modal.style.display = modal.style.display === 'flex' ? 'none' : 'flex';
+    openProcessModal(id) {
+        const claim = this.data.claims.find(c => c._id === id);
+        if (!claim) return;
+
+        const modal = document.getElementById('process-modal');
+        const form = document.getElementById('process-form');
+
+        form.elements['id'].value = id;
+        form.elements['status'].value = claim.status === 'Pending' ? 'Approved' : claim.status;
+        form.elements['settledAmount'].value = claim.settledAmount || 0;
+        form.elements['adminNotes'].value = claim.adminNotes || '';
+
+        modal.style.display = 'flex';
+        feather.replace();
     },
 
-    async handleClaimSubmit(e) {
+    closeProcessModal() {
+        document.getElementById('process-modal').style.display = 'none';
+    },
+
+    async handleProcessClaim(e) {
         e.preventDefault();
         const formData = new FormData(e.target);
-
-        const newClaim = {
-            name: formData.get('name'),
-            type: formData.get('type'),
-            amount: formData.get('amount')
+        const id = formData.get('id');
+        const update = {
+            status: formData.get('status'),
+            settledAmount: parseFloat(formData.get('settledAmount')) || 0,
+            adminNotes: formData.get('adminNotes')
         };
 
         try {
-            const res = await fetch('/api/claims', {
-                method: 'POST',
+            const res = await fetch(`/api/claims/${id}`, {
+                method: 'PUT',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(newClaim)
+                body: JSON.stringify(update)
             });
-            const savedClaim = await res.json();
+            const updated = await res.json();
 
-            this.data.claims.push(savedClaim);
+            const idx = this.data.claims.findIndex(c => c._id === id);
+            if (idx !== -1) this.data.claims[idx] = updated;
 
-            // Update Stats
-            if (this.data.stats) this.data.stats.claims++;
-
-            this.addNotification('Claim Filed', `New claim filed for ${savedClaim.name} ($${savedClaim.amount}).`, 'alert');
-            this.toggleClaimModal();
-            this.initClaims(); // Re-render
+            this.addNotification('Claim Updated', `Claim for ${updated.name} moved to ${updated.status} `, 'success');
+            this.closeProcessModal();
+            this.initClaims();
         } catch (err) {
-            console.error('Error saving claim', err);
+            console.error('Error processing claim', err);
+        }
+    },
+
+    async removeClaim(id) {
+        if (!confirm('Are you sure you want to remove this settled claim?')) return;
+        try {
+            await fetch(`/api/claims/${id}`, { method: 'DELETE' });
+            this.data.claims = this.data.claims.filter(c => c._id !== id);
+            this.initClaims(); // Re-render
+            this.addNotification('Claim Removed', 'Settled claim has been deleted from history.', 'success');
+        } catch (err) {
+            console.error('Error deleting claim', err);
         }
     },
 
     initCalculator() {
         const distanceInput = document.getElementById('calc-distance');
         const sizeInput = document.getElementById('calc-size');
+        const accessInput = document.getElementById('calc-access');
+        const packingInput = document.getElementById('calc-packing');
         const result = document.getElementById('calc-result');
 
         const calculate = () => {
             const distance = parseFloat(distanceInput.value) || 0;
             const sizeMultiplier = parseInt(sizeInput.value) || 1;
-            const baseRate = 100;
-            const perMile = 2.5;
+            const accessMultiplier = parseFloat(accessInput.value) || 1.0;
+            const isPacking = packingInput.checked;
 
-            const total = baseRate + (distance * perMile * sizeMultiplier);
-            result.textContent = '$' + total.toFixed(2);
+            const baseRate = 120; // Increased base
+            const perMile = 3.0; // Increased per mile
+            const packingFee = isPacking ? (300 * sizeMultiplier) : 0;
+
+            const total = ((baseRate + (distance * perMile)) * sizeMultiplier * accessMultiplier) + packingFee;
+
+            // Store locally for saving as quote
+            this._lastEstimate = {
+                amount: Math.round(total),
+                notes: `Dist: ${distance} km, Size: ${sizeInput.options[sizeInput.selectedIndex].text}, Access: ${accessInput.options[accessInput.selectedIndex].text}, Packing: ${isPacking ? 'Yes' : 'No'} `
+            };
+
+            result.textContent = '₹' + total.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 });
         };
 
-        distanceInput.addEventListener('input', calculate);
-        sizeInput.addEventListener('change', calculate);
+        [distanceInput, sizeInput, accessInput, packingInput].forEach(el => {
+            el.addEventListener('input', calculate);
+            el.addEventListener('change', calculate);
+        });
+
+        calculate(); // Initial run
+    },
+
+    saveCalcAsQuote() {
+        if (!this._lastEstimate) return;
+
+        this.navigateTo('quotes');
+        this.toggleQuoteModal();
+
+        // Auto-fill the modal
+        setTimeout(() => {
+            const amountInput = document.querySelector('#quote-modal input[name="amount"]');
+            if (amountInput) amountInput.value = this._lastEstimate.amount;
+
+            this.addNotification('Calculator', 'Estimate values applied to quote form.', 'success');
+        }, 100);
     },
 
     // Fleet Methods
@@ -963,22 +1222,18 @@ const app = {
         count.textContent = `${this.data.trucks.length} Vehicles`;
 
         tbody.innerHTML = this.data.trucks.map(t => `
-            <tr style="border-bottom: 1px solid var(--border);">
-                <td style="padding: 1rem; font-weight: 500;">${t.truckId}</td>
-                <td style="padding: 1rem; color: var(--text-muted);">${t.type}</td>
-                <td style="padding: 1rem;">${t.capacity}</td>
-                <td style="padding: 1rem;">
-                    <span style="padding: 0.25rem 0.5rem; background: ${t.status === 'Available' ? 'rgba(52, 211, 153, 0.1)' : 'rgba(239, 68, 68, 0.1)'}; color: ${t.status === 'Available' ? '#10b981' : '#ef4444'}; border-radius: 4px; font-size: 0.75rem;">
-                        ${t.status}
-                    </span>
-                </td>
-                <td style="padding: 1rem;">
-                    <button onclick="app.removeTruck('${t._id}')" style="background: none; border: none; color: #ef4444; cursor: pointer;">
-                        <i data-feather="trash-2" style="width: 16px; height: 16px;"></i>
-                    </button>
-                </td>
-            </tr>
-        `).join('');
+                <tr style="border-bottom: 1px solid var(--border);">
+                    <td style="padding: 1rem; font-weight: 500;">${t.truckId}</td>
+                    <td style="padding: 1rem; color: var(--text-muted);">${t.type}</td>
+                    <td style="padding: 1rem;">${t.capacity}</td>
+                    <td style="padding: 1rem;">
+                        <span style="padding: 0.25rem 0.5rem; background: rgba(52, 211, 153, 0.1); color: var(--secondary); border-radius: 4px; font-size: 0.75rem;">Active</span>
+                    </td>
+                    <td style="padding: 1rem;">
+                        <button onclick="app.deleteTruck('${t._id}')" class="icon-btn" style="color: #ef4444;" title="Remove Vehicle"><i data-feather="trash-2"></i></button>
+                    </td>
+                </tr>
+            `).join('');
         feather.replace();
     },
 

@@ -9,6 +9,12 @@ const PORT = process.env.PORT || 3000;
 app.use(express.static(path.join(__dirname)));
 app.use(express.json());
 
+// Request Logger
+app.use((req, res, next) => {
+    console.log(`${new Date().toISOString()} - ${req.method} ${req.url}`);
+    next();
+});
+
 // MongoDB Connection
 mongoose.connect('mongodb://localhost:27017/swift_movers', {
     useNewUrlParser: true,
@@ -31,6 +37,7 @@ const quoteSchema = new mongoose.Schema({
     origin: String,
     dest: String,
     date: String,
+    time: { type: String, default: '09:00 AM' },
     amount: Number,
     status: { type: String, default: 'Pending' },
     truckId: { type: String, default: null }
@@ -48,7 +55,10 @@ const claimSchema = new mongoose.Schema({
     name: String,
     type: String,
     amount: Number,
-    status: { type: String, default: 'In Review' }
+    status: { type: String, default: 'Pending' },
+    settledAmount: { type: Number, default: 0 },
+    adminNotes: { type: String, default: '' },
+    updatedAt: { type: Date, default: Date.now }
 });
 const Claim = mongoose.model('Claim', claimSchema);
 
@@ -130,10 +140,15 @@ app.post('/api/quotes', async (req, res) => {
 
 app.put('/api/quotes/:id', async (req, res) => {
     try {
+        console.log(`Updating Quote ${req.params.id}:`, req.body);
         const updatedQuote = await Quote.findByIdAndUpdate(req.params.id, req.body, { new: true });
+        if (!updatedQuote) return res.status(404).json({ error: 'Quote not found' });
+
+        console.log('Updated Quote Result:', updatedQuote);
         await logActivity('Job Updated', `Job ${updatedQuote.name} updated (Status: ${updatedQuote.status}, Truck: ${updatedQuote.truckId || 'None'})`, 'Admin');
         res.json(updatedQuote);
     } catch (err) {
+        console.error('Update Error:', err);
         res.status(500).json({ success: false, message: 'Error updating quote' });
     }
 });
@@ -198,38 +213,66 @@ app.get('/api/claims', async (req, res) => {
 app.post('/api/claims', async (req, res) => {
     const newClaim = new Claim(req.body);
     await newClaim.save();
-    await logActivity('Claim Filed', `New claim filed: ${newClaim.type} ($${newClaim.amount})`, 'Admin');
+    await logActivity('Claim Filed', `New claim filed: ${newClaim.type} (₹${newClaim.amount})`, 'Admin');
     res.json(newClaim);
+});
+
+app.put('/api/claims/:id', async (req, res) => {
+    try {
+        const body = { ...req.body, updatedAt: Date.now() };
+        const updatedClaim = await Claim.findByIdAndUpdate(req.params.id, body, { new: true });
+        await logActivity('Claim Processed', `Claim for ${updatedClaim.name} status: ${updatedClaim.status}`, 'Admin');
+        res.json(updatedClaim);
+    } catch (err) {
+        res.status(500).json({ error: 'Error updating claim' });
+    }
+});
+
+app.delete('/api/claims/:id', async (req, res) => {
+    try {
+        const claim = await Claim.findById(req.params.id);
+        await Claim.findByIdAndDelete(req.params.id);
+        if (claim) await logActivity('Claim Deleted', `Claim for ${claim.name || 'Unknown'} removed`, 'Admin');
+        res.json({ success: true });
+    } catch (err) {
+        res.status(500).json({ error: 'Error deleting claim' });
+    }
 });
 
 // Initialization
 app.get('/api/init', async (req, res) => {
-    // Ensure Admin Exists
-    const adminExists = await User.findOne({ username: 'admin' });
-    if (!adminExists) {
-        const salt = await bcrypt.genSalt(10);
-        const hashedPassword = await bcrypt.hash('admin123', salt);
-        await User.create({
-            username: 'admin',
-            password: hashedPassword,
-            name: 'System Administrator',
-            role: 'Admin'
-        });
-        console.log('Default Admin Created');
-    }
+    try {
+        console.log('--- Initializing System Data ---');
 
-    const quoteCount = await Quote.countDocuments();
-    if (quoteCount === 0) {
-        await Quote.create([
-            { name: 'Corporate Move - TechCorp', origin: '10001', dest: '94043', date: '2023-12-01', amount: 15000, status: 'Approved' },
-            { name: 'Residential - Smith Family', origin: '60601', dest: '33101', date: '2023-12-05', amount: 4200, status: 'Pending' }
+        // 1. Force update Admin name
+        await User.findOneAndUpdate({ username: 'admin' }, { name: 'Dilpreet Rekhi' }, { upsert: true });
+
+        // 2. Clear and Seed Claims (Force re-seed for demo visibility)
+        await Claim.deleteMany({});
+        const seededClaims = await Claim.create([
+            { name: 'Arjun Mehta', type: 'Electronic Damage', amount: 45000, status: 'Under Review' },
+            { name: 'Dr. Ananya Iyer', type: 'Furniture Scratch', amount: 2500, status: 'Settled', settledAmount: 2000, adminNotes: 'Agreed on partial refund.' },
+            { name: 'Vikram Singh', type: 'Lost Item', amount: 15000, status: 'Pending' },
+            { name: 'Sneha Rao', type: 'Wall Damage', amount: 8000, status: 'Approved' },
+            { name: 'Rajesh Khosla', type: 'Glassware Breakage', amount: 3500, status: 'Denied', adminNotes: 'Items were not packed by movers.' },
+            { name: 'Priya Verma', type: 'Delay Compensation', amount: 12000, status: 'Settled', settledAmount: 11000 },
+            { name: 'Amitabh Jaiswal', type: 'Water Damage', amount: 6500, status: 'Pending' }
         ]);
+
+        // 3. Clear and Seed Quotes & Inventory (Force re-seed for demo)
+        await Quote.deleteMany({});
+        await Quote.create([
+            { name: 'Sharma Residence', origin: '110001', dest: '560001', date: '2026-01-08', time: '09:00 AM', amount: 0, status: 'Pending' },
+            { name: 'Tech Solutions Pvt Ltd', origin: '600001', dest: '700001', date: '2026-01-12', time: '02:00 PM', amount: 0, status: 'Pending' },
+            { name: 'Patel Family', origin: '380001', dest: '411001', date: '2026-01-15', time: '11:00 AM', amount: 0, status: 'Pending' },
+            { name: 'Reddy Enterprises', origin: '500001', dest: '400001', date: '2026-01-20', time: '08:30 AM', amount: 0, status: 'Pending' },
+            { name: 'Kumar & Associates', origin: '226001', dest: '302001', date: '2026-01-25', time: '10:00 AM', amount: 0, status: 'Pending' }
+        ]);
+
+        await Inventory.deleteMany({});
         await Inventory.create([
             { item: 'Moving Blankets (Bundle)', category: 'Supplies', volume: 10 },
             { item: 'Hand Truck', category: 'Equipment', volume: 5 }
-        ]);
-        await Claim.create([
-            { name: 'TechCorp', type: 'Delay', amount: 500, status: 'Resolved' }
         ]);
 
         const truckCount = await Truck.countDocuments();
@@ -240,9 +283,12 @@ app.get('/api/init', async (req, res) => {
                 { truckId: 'V-201', type: 'Sprinter Van', capacity: 400, status: 'Available' }
             ]);
         }
-        res.json({ message: 'System initialized' });
-    } else {
-        res.json({ message: 'System data checked' });
+
+        console.log('Seeded Claims:', seededClaims.length);
+        res.json({ success: true, message: 'System localized and re-seeded', claimsCount: seededClaims.length });
+    } catch (err) {
+        console.error('Init Error:', err);
+        res.status(500).json({ success: false, error: err.message });
     }
 });
 
