@@ -992,12 +992,12 @@ const app = {
                     console.log('Local State Updated:', this.data.quotes[idx]);
                 }
 
-                this.addNotification('Job Updated', `Updated details for ${updatedQuote.name}`, 'success');
+                this.addNotification('Quote Updated', `Updated details for ${updatedQuote.name}`, 'success');
                 this.closeRescheduleModal();
                 this.initSchedule();
             }
         } catch (err) {
-            console.error('Error updating job', err);
+            console.error('Error updating quote', err);
         }
     },
 
