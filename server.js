@@ -7,6 +7,17 @@ const PORT = process.env.PORT || 10000;
 const ADMIN_USER = "admin";
 const ADMIN_PASS = "admin123";
 
+// Using JSON file as simple DB substitute
+import fs from "fs";
+import path from "path";
+
+const dbPath = (file) => path.join(process.cwd(), "db", file);
+
+const readDB = (file) =>
+  JSON.parse(fs.readFileSync(dbPath(file), "utf-8"));
+
+const writeDB = (file, data) =>
+  fs.writeFileSync(dbPath(file), JSON.stringify(data, null, 2));
 
 // Middleware
 app.use(express.static(path.join(__dirname)));
@@ -100,126 +111,120 @@ app.get('/api/activities', async (req, res) => {
     }
 });
 
-// Helper to log activity
-const logActivity = async (action, details, user = 'System') => {
-    try {
-        await Activity.create({ action, details, user });
-    } catch (err) {
-        console.error('Activity Log Error:', err);
-    }
+// Logs an activity to the activities collection
+const logActivity = (action, details, user = "Admin") => {
+  const activities = readDB("activities.json");
+  activities.unshift({
+    id: Date.now(),
+    action,
+    details,
+    user,
+    time: new Date()
+  });
+  writeDB("activities.json", activities);
 };
 
 // Login (Admin/Staff Only)
-app.post('/api/login', (req, res) => {
-    try {
-        const { username, password } = req.body;
+app.post("/api/login", (req, res) => {
+  const { username, password } = req.body;
 
-        // TEMP admin credentials (no DB)
-        const ADMIN_USER = "admin";
-        const ADMIN_PASS = "admin123";
+  const users = readDB("users.json");
 
-        if (username !== ADMIN_USER || password !== ADMIN_PASS) {
-            return res.status(400).json({
-                success: false,
-                message: 'Invalid credentials'
-            });
-        }
+  const user = users.find(
+    u => u.username === username && u.password === password
+  );
 
-        res.json({
-            success: true,
-            user: {
-                name: "Admin",
-                role: "Admin",
-                username: ADMIN_USER
-            }
-        });
-    } catch (err) {
-        console.error(err);
-        res.status(500).json({
-            success: false,
-            message: 'Server error'
-        });
+  if (!user) {
+    return res.status(401).json({ success: false, message: "Invalid credentials" });
+  }
+
+  res.json({
+    success: true,
+    user: {
+      name: user.name,
+      role: user.role,
+      username: user.username
     }
+  });
 });
-
 
 // Quotes
-app.get('/api/quotes', async (req, res) => {
-    const quotes = await Quote.find().sort({ _id: -1 });
-    res.json(quotes);
+app.get("/api/quotes", (req, res) => {
+  const quotes = readDB("quotes.json");
+  res.json(quotes.reverse());
 });
 
-app.post('/api/quotes', async (req, res) => {
-    const newQuote = new Quote(req.body);
-    await newQuote.save();
-    await logActivity('Quote Created', `New quote created for ${newQuote.name}`, 'Admin');
-    res.json(newQuote);
+app.post("/api/quotes", (req, res) => {
+  const quotes = readDB("quotes.json");
+
+  const newQuote = {
+    id: Date.now(),
+    ...req.body,
+    status: "Pending"
+  };
+
+  quotes.push(newQuote);
+  writeDB("quotes.json", quotes);
+
+  res.json(newQuote);
 });
 
-app.put('/api/quotes/:id', async (req, res) => {
-    try {
-        console.log(`Updating Quote ${req.params.id}:`, req.body);
-        const updatedQuote = await Quote.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        if (!updatedQuote) return res.status(404).json({ error: 'Quote not found' });
 
-        console.log('Updated Quote Result:', updatedQuote);
-        await logActivity('Job Updated', `Job ${updatedQuote.name} updated (Status: ${updatedQuote.status}, Truck: ${updatedQuote.truckId || 'None'})`, 'Admin');
-        res.json(updatedQuote);
-    } catch (err) {
-        console.error('Update Error:', err);
-        res.status(500).json({ success: false, message: 'Error updating quote' });
-    }
+app.put("/api/quotes/:id", (req, res) => {
+  const quotes = readDB("quotes.json");
+  const index = quotes.findIndex(q => q.id == req.params.id);
+
+  if (index === -1) return res.sendStatus(404);
+
+  quotes[index] = { ...quotes[index], ...req.body };
+  writeDB("quotes.json", quotes);
+
+  res.json(quotes[index]);
 });
 
-app.delete('/api/quotes/:id', async (req, res) => {
-    try {
-        const quote = await Quote.findById(req.params.id);
-        await Quote.findByIdAndDelete(req.params.id);
-        if (quote) await logActivity('Quote Deleted', `Quote for ${quote.name} was removed`, 'Admin');
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ success: false, message: 'Error deleting quote' });
-    }
+app.delete("/api/quotes/:id", (req, res) => {
+  let quotes = readDB("quotes.json");
+  quotes = quotes.filter(q => q.id != req.params.id);
+  writeDB("quotes.json", quotes);
+  res.json({ success: true });
 });
+
 
 // Stats Endpoint
-app.get('/api/stats', async (req, res) => {
-    try {
-        const totalQuotes = await Quote.countDocuments();
-        const approvedQuotes = await Quote.find({ status: 'Approved' });
-        const scheduledMoves = approvedQuotes.length;
-        const revenue = approvedQuotes.reduce((acc, q) => acc + (q.amount || 0), 0);
-        const totalClaims = await Claim.countDocuments(); // Count all claims
+app.get("/api/stats", (req, res) => {
+  const quotes = readDB("quotes.json");
+  const claims = readDB("claims.json");
 
-        res.json({
-            quotes: totalQuotes,
-            moves: scheduledMoves,
-            revenue,
-            claims: totalClaims
-        });
-    } catch (err) {
-        res.status(500).json({ error: 'Stats error' });
-    }
+  const approved = quotes.filter(q => q.status === "Approved");
+  const revenue = approved.reduce((a, b) => a + (b.amount || 0), 0);
+
+  res.json({
+    quotes: quotes.length,
+    moves: approved.length,
+    revenue,
+    claims: claims.length
+  });
 });
+
 
 // Inventory
-app.get('/api/inventory', async (req, res) => {
-    const items = await Inventory.find();
-    res.json(items);
+app.get("/api/inventory", (req, res) => {
+  res.json(readDB("inventory.json"));
 });
 
-app.post('/api/inventory', async (req, res) => {
-    const newItem = new Inventory(req.body);
-    await newItem.save();
-    await logActivity('Inventory Added', `Added ${newItem.volume}ft³ of ${newItem.item}`, 'Admin');
-    res.json(newItem);
+app.post("/api/inventory", (req, res) => {
+  const data = readDB("inventory.json");
+  const item = { id: Date.now(), ...req.body };
+  data.push(item);
+  writeDB("inventory.json", data);
+  res.json(item);
 });
 
-app.delete('/api/inventory/:id', async (req, res) => {
-    const item = await Inventory.findById(req.params.id);
-    await Inventory.findByIdAndDelete(req.params.id);
-    if (item) await logActivity('Inventory Removed', `Removed ${item.item}`, 'Admin');
-    res.json({ success: true });
+app.delete("/api/inventory/:id", (req, res) => {
+  let data = readDB("inventory.json");
+  data = data.filter(i => i.id != req.params.id);
+  writeDB("inventory.json", data);
+  res.json({ success: true });
 });
 
 // Claims
@@ -258,98 +263,124 @@ app.delete('/api/claims/:id', async (req, res) => {
 });
 
 // Initialization
-app.get('/api/init', async (req, res) => {
-    try {
-        console.log('--- Initializing System Data ---');
+// app.get('/api/init', async (req, res) => {
+//     try {
+//         console.log('--- Initializing System Data ---');
 
-        // 1. Force update Admin name
-        await User.findOneAndUpdate({ username: 'admin' }, { name: 'Dilpreet Rekhi' }, { upsert: true });
+//         // 1. Force update Admin name
+//         await User.findOneAndUpdate({ username: 'admin' }, { name: 'Dilpreet Rekhi' }, { upsert: true });
 
-        // 2. Clear and Seed Claims (Force re-seed for demo visibility)
-        await Claim.deleteMany({});
-        const seededClaims = await Claim.create([
-            { name: 'Arjun Mehta', type: 'Electronic Damage', amount: 45000, status: 'Under Review' },
-            { name: 'Dr. Ananya Iyer', type: 'Furniture Scratch', amount: 2500, status: 'Settled', settledAmount: 2000, adminNotes: 'Agreed on partial refund.' },
-            { name: 'Vikram Singh', type: 'Lost Item', amount: 15000, status: 'Pending' },
-            { name: 'Sneha Rao', type: 'Wall Damage', amount: 8000, status: 'Approved' },
-            { name: 'Rajesh Khosla', type: 'Glassware Breakage', amount: 3500, status: 'Denied', adminNotes: 'Items were not packed by movers.' },
-            { name: 'Priya Verma', type: 'Delay Compensation', amount: 12000, status: 'Settled', settledAmount: 11000 },
-            { name: 'Amitabh Jaiswal', type: 'Water Damage', amount: 6500, status: 'Pending' }
-        ]);
+//         // 2. Clear and Seed Claims (Force re-seed for demo visibility)
+//         await Claim.deleteMany({});
+//         const seededClaims = await Claim.create([
+//             { name: 'Arjun Mehta', type: 'Electronic Damage', amount: 45000, status: 'Under Review' },
+//             { name: 'Dr. Ananya Iyer', type: 'Furniture Scratch', amount: 2500, status: 'Settled', settledAmount: 2000, adminNotes: 'Agreed on partial refund.' },
+//             { name: 'Vikram Singh', type: 'Lost Item', amount: 15000, status: 'Pending' },
+//             { name: 'Sneha Rao', type: 'Wall Damage', amount: 8000, status: 'Approved' },
+//             { name: 'Rajesh Khosla', type: 'Glassware Breakage', amount: 3500, status: 'Denied', adminNotes: 'Items were not packed by movers.' },
+//             { name: 'Priya Verma', type: 'Delay Compensation', amount: 12000, status: 'Settled', settledAmount: 11000 },
+//             { name: 'Amitabh Jaiswal', type: 'Water Damage', amount: 6500, status: 'Pending' }
+//         ]);
 
-        // 3. Clear and Seed Quotes & Inventory (Force re-seed for demo)
-        await Quote.deleteMany({});
-        await Quote.create([
-            { name: 'Sharma Residence', origin: '110001', dest: '560001', date: '2026-01-08', time: '09:00 AM', amount: 0, status: 'Pending' },
-            { name: 'Tech Solutions Pvt Ltd', origin: '600001', dest: '700001', date: '2026-01-12', time: '02:00 PM', amount: 0, status: 'Pending' },
-            { name: 'Patel Family', origin: '380001', dest: '411001', date: '2026-01-15', time: '11:00 AM', amount: 0, status: 'Pending' },
-            { name: 'Reddy Enterprises', origin: '500001', dest: '400001', date: '2026-01-20', time: '08:30 AM', amount: 0, status: 'Pending' },
-            { name: 'Kumar & Associates', origin: '226001', dest: '302001', date: '2026-01-25', time: '10:00 AM', amount: 0, status: 'Pending' }
-        ]);
+//         // 3. Clear and Seed Quotes & Inventory (Force re-seed for demo)
+//         await Quote.deleteMany({});
+//         await Quote.create([
+//             { name: 'Sharma Residence', origin: '110001', dest: '560001', date: '2026-01-08', time: '09:00 AM', amount: 0, status: 'Pending' },
+//             { name: 'Tech Solutions Pvt Ltd', origin: '600001', dest: '700001', date: '2026-01-12', time: '02:00 PM', amount: 0, status: 'Pending' },
+//             { name: 'Patel Family', origin: '380001', dest: '411001', date: '2026-01-15', time: '11:00 AM', amount: 0, status: 'Pending' },
+//             { name: 'Reddy Enterprises', origin: '500001', dest: '400001', date: '2026-01-20', time: '08:30 AM', amount: 0, status: 'Pending' },
+//             { name: 'Kumar & Associates', origin: '226001', dest: '302001', date: '2026-01-25', time: '10:00 AM', amount: 0, status: 'Pending' }
+//         ]);
 
-        await Inventory.deleteMany({});
-        await Inventory.create([
-            { item: 'Moving Blankets (Bundle)', category: 'Supplies', volume: 10 },
-            { item: 'Hand Truck', category: 'Equipment', volume: 5 }
-        ]);
+//         await Inventory.deleteMany({});
+//         await Inventory.create([
+//             { item: 'Moving Blankets (Bundle)', category: 'Supplies', volume: 10 },
+//             { item: 'Hand Truck', category: 'Equipment', volume: 5 }
+//         ]);
 
-        const truckCount = await Truck.countDocuments();
-        if (truckCount === 0) {
-            await Truck.create([
-                { truckId: 'T-101', type: '26ft Box Truck', capacity: 1600, status: 'Available' },
-                { truckId: 'T-102', type: '16ft Box Truck', capacity: 800, status: 'Available' },
-                { truckId: 'V-201', type: 'Sprinter Van', capacity: 400, status: 'Available' }
-            ]);
-        }
+//         const truckCount = await Truck.countDocuments();
+//         if (truckCount === 0) {
+//             await Truck.create([
+//                 { truckId: 'T-101', type: '26ft Box Truck', capacity: 1600, status: 'Available' },
+//                 { truckId: 'T-102', type: '16ft Box Truck', capacity: 800, status: 'Available' },
+//                 { truckId: 'V-201', type: 'Sprinter Van', capacity: 400, status: 'Available' }
+//             ]);
+//         }
 
-        console.log('Seeded Claims:', seededClaims.length);
-        res.json({ success: true, message: 'System localized and re-seeded', claimsCount: seededClaims.length });
-    } catch (err) {
-        console.error('Init Error:', err);
-        res.status(500).json({ success: false, error: err.message });
-    }
-});
+//         console.log('Seeded Claims:', seededClaims.length);
+//         res.json({ success: true, message: 'System localized and re-seeded', claimsCount: seededClaims.length });
+//     } catch (err) {
+//         console.error('Init Error:', err);
+//         res.status(500).json({ success: false, error: err.message });
+//     }
+// });
 
 // Fleet Management API
-app.get('/api/trucks', async (req, res) => {
-    try {
-        const trucks = await Truck.find();
-        res.json(trucks);
-    } catch (err) {
-        res.status(500).json({ error: 'Error fetching trucks' });
-    }
+app.get("/api/trucks", (req, res) => {
+  res.json(readDB("trucks.json"));
 });
 
-app.post('/api/trucks', async (req, res) => {
-    try {
-        const newTruck = new Truck(req.body);
-        await newTruck.save();
-        await logActivity('Truck Added', `New truck added: ${newTruck.truckId} (${newTruck.type})`, 'Admin');
-        res.json(newTruck);
-    } catch (err) {
-        res.status(500).json({ error: 'Error adding truck' });
-    }
+app.post("/api/trucks", (req, res) => {
+  const trucks = readDB("trucks.json");
+
+  const truck = {
+    id: Date.now(),
+    truckId: req.body.truckId,
+    type: req.body.type,
+    capacity: req.body.capacity,
+    status: req.body.status || "Available"
+  };
+
+  trucks.push(truck);
+  writeDB("trucks.json", trucks);
+
+  logActivity("Truck Added", `Truck ${truck.truckId} added`, "Admin");
+
+  res.json(truck);
 });
 
-app.put('/api/trucks/:id', async (req, res) => {
-    try {
-        const updatedTruck = await Truck.findByIdAndUpdate(req.params.id, req.body, { new: true });
-        await logActivity('Truck Updated', `Truck ${updatedTruck.truckId} status: ${updatedTruck.status}`, 'Admin');
-        res.json(updatedTruck);
-    } catch (err) {
-        res.status(500).json({ error: 'Error updating truck' });
-    }
+app.put("/api/trucks/:id", (req, res) => {
+  const trucks = readDB("trucks.json");
+  const index = trucks.findIndex(t => t.id == req.params.id);
+
+  if (index === -1) {
+    return res.status(404).json({ error: "Truck not found" });
+  }
+
+  trucks[index] = {
+    ...trucks[index],
+    ...req.body
+  };
+
+  writeDB("trucks.json", trucks);
+
+  logActivity(
+    "Truck Updated",
+    `Truck ${trucks[index].truckId} status updated`,
+    "Admin"
+  );
+
+  res.json(trucks[index]);
 });
 
-app.delete('/api/trucks/:id', async (req, res) => {
-    try {
-        const truck = await Truck.findById(req.params.id);
-        await Truck.findByIdAndDelete(req.params.id);
-        if (truck) await logActivity('Truck Removed', `Truck ${truck.truckId} was decommissioned`, 'Admin');
-        res.json({ success: true });
-    } catch (err) {
-        res.status(500).json({ error: 'Error deleting truck' });
-    }
+app.delete("/api/trucks/:id", (req, res) => {
+  let trucks = readDB("trucks.json");
+
+  const truck = trucks.find(t => t.id == req.params.id);
+  if (!truck) {
+    return res.status(404).json({ error: "Truck not found" });
+  }
+
+  trucks = trucks.filter(t => t.id != req.params.id);
+  writeDB("trucks.json", trucks);
+
+  logActivity(
+    "Truck Removed",
+    `Truck ${truck.truckId} removed`,
+    "Admin"
+  );
+
+  res.json({ success: true });
 });
 
 // SPA Fallback
