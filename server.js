@@ -1,6 +1,6 @@
 const express = require('express');
 const path = require('path');
-const mongoose = require('mongoose');
+// const mongoose = require('mongoose');
 const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 10000;
@@ -17,9 +17,9 @@ app.use((req, res, next) => {
 });
 
 // MongoDB Connection
-mongoose.connect("mongodb://127.0.0.1:27017/swift-movers")
-  .then(() => console.log("MongoDB Connected Successfully"))
-  .catch((err) => console.error("MongoDB Connection Error:", err));
+// mongoose.connect("mongodb://127.0.0.1:27017/swift-movers")
+//   .then(() => console.log("MongoDB Connected Successfully"))
+//   .catch((err) => console.error("MongoDB Connection Error:", err));
 
 
 // Schemas & Models
