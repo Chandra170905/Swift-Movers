@@ -23,64 +23,66 @@ app.use((req, res, next) => {
 
 
 // Schemas & Models
-const userSchema = new mongoose.Schema({
-    username: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
-    name: String,
-    email: String,
-    role: { type: String, default: 'Client' }
-});
-const User = mongoose.model('User', userSchema);
 
-const quoteSchema = new mongoose.Schema({
-    name: String,
-    origin: String,
-    dest: String,
-    date: String,
-    time: { type: String, default: '09:00 AM' },
-    amount: Number,
-    status: { type: String, default: 'Pending' },
-    truckId: { type: String, default: null }
-});
-const Quote = mongoose.model('Quote', quoteSchema);
+// const userSchema = new mongoose.Schema({
+//     username: { type: String, required: true, unique: true },
+//     password: { type: String, required: true },
+//     name: String,
+//     email: String,
+//     role: { type: String, default: 'Client' }
+// });
+// const User = mongoose.model('User', userSchema);
 
-const inventorySchema = new mongoose.Schema({
-    item: String,
-    category: String,
-    volume: Number
-});
-const Inventory = mongoose.model('Inventory', inventorySchema);
+// const quoteSchema = new mongoose.Schema({
+//     name: String,
+//     origin: String,
+//     dest: String,
+//     date: String,
+//     time: { type: String, default: '09:00 AM' },
+//     amount: Number,
+//     status: { type: String, default: 'Pending' },
+//     truckId: { type: String, default: null }
+// });
+// const Quote = mongoose.model('Quote', quoteSchema);
 
-const claimSchema = new mongoose.Schema({
-    name: String,
-    type: String,
-    amount: Number,
-    status: { type: String, default: 'Pending' },
-    settledAmount: { type: Number, default: 0 },
-    adminNotes: { type: String, default: '' },
-    updatedAt: { type: Date, default: Date.now }
-});
-const Claim = mongoose.model('Claim', claimSchema);
+// const inventorySchema = new mongoose.Schema({
+//     item: String,
+//     category: String,
+//     volume: Number
+// });
+// const Inventory = mongoose.model('Inventory', inventorySchema);
 
-const truckSchema = new mongoose.Schema({
-    truckId: { type: String, required: true, unique: true },
-    type: String,
-    capacity: Number,
-    status: { type: String, default: 'Available' }
-});
-const Truck = mongoose.model('Truck', truckSchema);
+// const claimSchema = new mongoose.Schema({
+//     name: String,
+//     type: String,
+//     amount: Number,
+//     status: { type: String, default: 'Pending' },
+//     settledAmount: { type: Number, default: 0 },
+//     adminNotes: { type: String, default: '' },
+//     updatedAt: { type: Date, default: Date.now }
+// });
+// const Claim = mongoose.model('Claim', claimSchema);
+
+// const truckSchema = new mongoose.Schema({
+//     truckId: { type: String, required: true, unique: true },
+//     type: String,
+//     capacity: Number,
+//     status: { type: String, default: 'Available' }
+// });
+// const Truck = mongoose.model('Truck', truckSchema);
 
 // API Endpoints
 
 // Register
 // Models
-const activitySchema = new mongoose.Schema({
-    action: String,
-    details: String,
-    user: String,
-    timestamp: { type: Date, default: Date.now }
-});
-const Activity = mongoose.model('Activity', activitySchema);
+
+// const activitySchema = new mongoose.Schema({
+//     action: String,
+//     details: String,
+//     user: String,
+//     timestamp: { type: Date, default: Date.now }
+// });
+// const Activity = mongoose.model('Activity', activitySchema);
 
 // ... (Existing Schemas: User, Quote, Inventory, Claim) ...
 
