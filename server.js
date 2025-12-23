@@ -1,9 +1,11 @@
 const express = require('express');
 const path = require('path');
 // const mongoose = require('mongoose');
-const bcrypt = require('bcryptjs');
+// const bcrypt = require('bcryptjs');
 const app = express();
 const PORT = process.env.PORT || 10000;
+const ADMIN_USER = "admin";
+const ADMIN_PASS = "admin123";
 
 
 // Middleware
@@ -108,24 +110,38 @@ const logActivity = async (action, details, user = 'System') => {
 };
 
 // Login (Admin/Staff Only)
-app.post('/api/login', async (req, res) => {
+app.post('/api/login', (req, res) => {
     try {
         const { username, password } = req.body;
-        const user = await User.findOne({ username });
-        if (!user) return res.status(400).json({ success: false, message: 'Invalid credentials' });
 
-        const isMatch = await bcrypt.compare(password, user.password);
-        if (!isMatch) return res.status(400).json({ success: false, message: 'Invalid credentials' });
+        // TEMP admin credentials (no DB)
+        const ADMIN_USER = "admin";
+        const ADMIN_PASS = "admin123";
+
+        if (username !== ADMIN_USER || password !== ADMIN_PASS) {
+            return res.status(400).json({
+                success: false,
+                message: 'Invalid credentials'
+            });
+        }
 
         res.json({
             success: true,
-            user: { name: user.name, role: 'Staff', username: user.username }
+            user: {
+                name: "Admin",
+                role: "Admin",
+                username: ADMIN_USER
+            }
         });
     } catch (err) {
         console.error(err);
-        res.status(500).json({ success: false, message: 'Server error' });
+        res.status(500).json({
+            success: false,
+            message: 'Server error'
+        });
     }
 });
+
 
 // Quotes
 app.get('/api/quotes', async (req, res) => {
