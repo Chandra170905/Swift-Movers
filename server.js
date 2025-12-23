@@ -9,7 +9,6 @@ const ADMIN_PASS = "admin123";
 
 // Using JSON file as simple DB substitute
 import fs from "fs";
-import path from "path";
 
 const dbPath = (file) => path.join(process.cwd(), "db", file);
 
