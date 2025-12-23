@@ -23,7 +23,7 @@ const writeDB = (file, data) =>
   fs.writeFileSync(dbPath(file), JSON.stringify(data, null, 2));
 
 // Middleware
-app.use(express.static(path.join(__dirname, "public")));
+app.use(express.static(__dirname));
 app.use(express.json());
 
 // Request Logger
@@ -331,7 +331,7 @@ app.delete("/api/trucks/:id", verifyToken, requireAdmin, (req, res) => {
 
 // SPA Fallback
 app.get("*", (req, res) => {
-  res.sendFile(path.join(__dirname, "public", "index.html"));
+  res.sendFile(path.join(__dirname, "index.html"));
 });
 
 // Start Server
