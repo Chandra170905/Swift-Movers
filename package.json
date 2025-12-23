@@ -3,7 +3,8 @@
     "version": "1.0.0",
     "description": "Premium Moving Company Management System",
     "main": "server.js",
-    "scripts": {
+    "type": "module",
+        "scripts": {
         "start": "node server.js",
         "dev": "node server.js"
     },
