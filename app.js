@@ -594,25 +594,55 @@ const app = {
         },
         claims() {
             return `
-                <div class="card">
-                    <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
-                        <h3>Insurance Claims</h3>
+                <div style="display: grid; grid-template-columns: 2fr 1fr; gap: 2rem;">
+                    <div class="card">
+                        <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
+                            <h3>Insurance Claims</h3>
+                        </div>
+                        <table style="width: 100%; border-collapse: collapse;">
+                            <thead>
+                                <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
+                                    <th style="padding: 1rem;">Claim ID</th>
+                                    <th style="padding: 1rem;">Customer</th>
+                                    <th style="padding: 1rem;">Type</th>
+                                    <th style="padding: 1rem;">Amount</th>
+                                    <th style="padding: 1rem;">Status</th>
+                                    <th style="padding: 1rem;">Actions</th>
+                                </tr>
+                            </thead>
+                            <tbody id="claims-list">
+                                <!-- Claims here -->
+                            </tbody>
+                        </table>
                     </div>
-                    <table style="width: 100%; border-collapse: collapse;">
-                        <thead>
-                            <tr style="text-align: left; color: var(--text-muted); border-bottom: 1px solid var(--border);">
-                                <th style="padding: 1rem;">Claim ID</th>
-                                <th style="padding: 1rem;">Customer</th>
-                                <th style="padding: 1rem;">Type</th>
-                                <th style="padding: 1rem;">Amount</th>
-                                <th style="padding: 1rem;">Status</th>
-                                <th style="padding: 1rem;">Actions</th>
-                            </tr>
-                        </thead>
-                        <tbody id="claims-list">
-                            <!-- Claims here -->
-                        </tbody>
-                    </table>
+
+                    <div class="card" style="height: fit-content;">
+                        <h3>File New Claim</h3>
+                        <form onsubmit="app.handleClaimSubmit(event)" style="margin-top: 1.5rem;">
+                            <div class="form-group">
+                                <label>Customer Name</label>
+                                <input type="text" name="name" placeholder="e.g. John Doe" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Claim Type</label>
+                                <select name="type" required>
+                                    <option value="Damage">Damage</option>
+                                    <option value="Loss">Loss</option>
+                                    <option value="Delay">Delay</option>
+                                    <option value="Billing">Billing</option>
+                                </select>
+                            </div>
+                            <div class="form-group">
+                                <label>Claim Amount (â‚¹)</label>
+                                <input type="number" name="amount" min="0" step="0.01" placeholder="0" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Description</label>
+                                <textarea name="description" rows="3" placeholder="Short claim summary"></textarea>
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Submit Claim</button>
+                        </form>
+                    </div>
                 </div>
 
                 <!-- Process Claim Modal -->
@@ -1183,6 +1213,17 @@ const app = {
         const tbody = document.getElementById('claims-list');
         if (!tbody) return;
 
+        if (!this.data.claims.length) {
+            tbody.innerHTML = `
+                <tr>
+                    <td colspan="6" style="padding: 1rem; text-align: center; color: var(--text-muted);">
+                        No claims filed yet.
+                    </td>
+                </tr>
+            `;
+            return;
+        }
+
         tbody.innerHTML = this.data.claims.map(c => {
             let statusStyle = 'background: rgba(255, 255, 255, 0.1); color: white;';
             if (c.status === 'Settled') statusStyle = 'background: rgba(16, 185, 129, 0.1); color: #10b981;';
@@ -1213,6 +1254,37 @@ const app = {
             `;
         }).join('');
         feather.replace();
+    },
+
+    async handleClaimSubmit(e) {
+        e.preventDefault();
+        const formData = new FormData(e.target);
+        const newClaim = {
+            name: formData.get('name'),
+            type: formData.get('type'),
+            amount: parseFloat(formData.get('amount')) || 0,
+            description: formData.get('description') || '',
+            status: 'Pending'
+        };
+
+        try {
+            const res = await fetch('/api/claims', {
+                method: 'POST',
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
+                body: JSON.stringify(newClaim)
+            });
+            if (!res.ok) throw new Error(`Failed to create claim (${res.status})`);
+
+            const savedClaim = await res.json();
+            this.data.claims.unshift(this.normalizeRecord(savedClaim));
+            e.target.reset();
+            this.addNotification('Claim Filed', `New claim filed for ${savedClaim.name}`, 'success');
+            this.recomputeStats();
+            this.refreshCurrentView();
+        } catch (err) {
+            console.error('Error filing claim', err);
+            this.addNotification('Error', 'Failed to submit claim', 'alert');
+        }
     },
 
     openProcessModal(id) {
