@@ -46,8 +46,6 @@ const app = {
         if (!this.user) return;
 
         try {
-            await fetch('/api/init'); // Seed if empty
- 
             const [quotesRes, inventoryRes, claimsRes, statsRes, activitiesRes] = await Promise.all([
                 fetch('/api/quotes', { headers: this.authHeaders() }),
                 fetch('/api/inventory', { headers: this.authHeaders() }),
@@ -88,6 +86,7 @@ const app = {
                 time: new Date(a.timestamp || a.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 type: 'info' // Default
             }));
+            this.recomputeStats();
 
         } catch (err) {
             console.error('Failed to fetch data', err);
@@ -292,6 +291,7 @@ const app = {
         // Simple Router
         switch (view) {
             case 'dashboard':
+                this.recomputeStats();
                 container.innerHTML = this.views.dashboard();
                 break;
             case 'quotes':
@@ -383,6 +383,7 @@ const app = {
                 <div class="card">
                     <div style="display: flex; justify-content: space-between; align-items: center; margin-bottom: 2rem;">
                         <h3>Quote Requests</h3>
+                        <button class="btn-primary" onclick="app.toggleQuoteModal()">New Quote</button>
                     </div>
 
                     <div style="overflow-x: auto;">
@@ -419,6 +420,37 @@ const app = {
                             </div>
                             <input type="hidden" name="quoteId">
                             <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Approve Quote</button>
+                        </form>
+                    </div>
+                </div>
+                <div id="quote-modal" class="modal">
+                    <div class="modal-content" style="max-width: 480px;">
+                        <div style="display: flex; justify-content: space-between; margin-bottom: 1rem;">
+                            <h3>Create Quote</h3>
+                            <button onclick="app.toggleQuoteModal()" style="background: none; border: none; color: var(--text-muted); cursor: pointer; font-size: 1.5rem;">&times;</button>
+                        </div>
+                        <form onsubmit="app.handleQuoteSubmit(event)">
+                            <div class="form-group">
+                                <label>Customer Name</label>
+                                <input type="text" name="name" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Origin</label>
+                                <input type="text" name="origin" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Destination</label>
+                                <input type="text" name="dest" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Move Date</label>
+                                <input type="date" name="date" required>
+                            </div>
+                            <div class="form-group">
+                                <label>Amount</label>
+                                <input type="number" name="amount" min="0" required>
+                            </div>
+                            <button type="submit" class="btn-primary" style="width: 100%; margin-top: 1rem;">Save Quote</button>
                         </form>
                     </div>
                 </div>
@@ -744,14 +776,29 @@ const app = {
         }
     },
 
-    // Data Store
-    data: {
-        quotes: [],
-        schedule: [], // Deprecated: Derived from quotes
-        inventory: [],
-        claims: [],
-        notifications: [],
-        trucks: []
+    recomputeStats() {
+        const quotes = this.data.quotes || [];
+        const claims = this.data.claims || [];
+        const approved = quotes.filter((q) => q.status === 'Approved');
+        const revenue = approved.reduce((sum, q) => sum + (Number(q.amount) || 0), 0);
+        this.data.stats = {
+            quotes: quotes.length,
+            moves: approved.length,
+            revenue,
+            claims: claims.length
+        };
+    },
+
+    refreshCurrentView() {
+        if (this.currentPage === 'dashboard') {
+            this.render('dashboard');
+            return;
+        }
+        if (this.currentPage === 'quotes') this.renderQuotesTable();
+        if (this.currentPage === 'schedule') this.initSchedule();
+        if (this.currentPage === 'inventory') this.renderInventory();
+        if (this.currentPage === 'claims') this.initClaims();
+        if (this.currentPage === 'fleet') this.renderFleet();
     },
 
     // Utilities
@@ -763,6 +810,9 @@ const app = {
     saveNotifications() {
         localStorage.setItem('swift_notifications', JSON.stringify(this.data.notifications));
         this.renderNotificationsBadge();
+        if (this.currentPage === 'dashboard' || this.currentPage === 'notifications') {
+            this.render(this.currentPage);
+        }
     },
 
     addNotification(title, message, type = 'info') {
@@ -837,12 +887,11 @@ const app = {
 
             const idx = this.data.quotes.findIndex(q => q._id === quoteId);
             if (idx !== -1) {
-                this.data.quotes[idx] = updated;
+                this.data.quotes[idx] = this.normalizeRecord(updated);
             }
             this.addNotification('Truck Assigned', `Truck ${truckId || 'None'} assigned to ${updated.name} `, 'success');
-            // No need to full re-render here if we just want to update the local state, 
-            // but for simplicity and showing the result in schedule:
-            this.renderQuotesTable();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error assigning truck', err);
         }
@@ -882,12 +931,13 @@ const app = {
             // Update local state
             const idx = this.data.quotes.findIndex(q => q._id === quoteId);
             if (idx !== -1) {
-                this.data.quotes[idx] = updated;
+                this.data.quotes[idx] = this.normalizeRecord(updated);
                 this.addNotification('Quote Approved', `Quote for ${updated.name} approved at ₹${amount.toLocaleString()}`, 'success');
             }
 
             this.closeApproveModal();
-            this.renderQuotesTable();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error approving quote', err);
         }
@@ -906,10 +956,8 @@ const app = {
                 // Remove from local state
                 this.data.quotes = this.data.quotes.filter(q => q._id !== id);
                 this.addNotification('Quote Deleted', 'Quote request has been removed', 'success');
-                this.renderQuotesTable();
-
-                // Refresh stats
-                await this.fetchInitialData();
+                this.recomputeStats();
+                this.refreshCurrentView();
             }
         } catch (err) {
             console.error('Error deleting quote', err);
@@ -944,8 +992,9 @@ const app = {
             const savedQuote = await res.json();
 
             this.data.quotes.unshift(this.normalizeRecord(savedQuote));
+            this.recomputeStats();
             this.toggleQuoteModal();
-            this.renderQuotesTable();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error saving quote', err);
         }
@@ -1050,13 +1099,14 @@ const app = {
                 console.log('Update Response Received:', updatedQuote);
                 const idx = this.data.quotes.findIndex(q => q._id === quoteId);
                 if (idx !== -1) {
-                    this.data.quotes[idx] = updatedQuote;
+                    this.data.quotes[idx] = this.normalizeRecord(updatedQuote);
                     console.log('Local State Updated:', this.data.quotes[idx]);
                 }
 
                 this.addNotification('Quote Updated', `Updated details for ${updatedQuote.name}`, 'success');
                 this.closeRescheduleModal();
-                this.initSchedule();
+                this.recomputeStats();
+                this.refreshCurrentView();
             }
         } catch (err) {
             console.error('Error updating quote', err);
@@ -1108,7 +1158,8 @@ const app = {
 
             this.data.inventory.push(this.normalizeRecord(savedItem));
             e.target.reset();
-            this.renderInventory();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error saving inventory', err);
         }
@@ -1121,7 +1172,8 @@ const app = {
                 headers: this.authHeaders()
             });
             this.data.inventory = this.data.inventory.filter(i => i._id !== id);
-            this.renderInventory();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error deleting item', err);
         }
@@ -1203,11 +1255,12 @@ const app = {
             const updated = await res.json();
 
             const idx = this.data.claims.findIndex(c => c._id === id);
-            if (idx !== -1) this.data.claims[idx] = updated;
+            if (idx !== -1) this.data.claims[idx] = this.normalizeRecord(updated);
 
             this.addNotification('Claim Updated', `Claim for ${updated.name} moved to ${updated.status} `, 'success');
             this.closeProcessModal();
-            this.initClaims();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error processing claim', err);
         }
@@ -1221,8 +1274,9 @@ const app = {
                 headers: this.authHeaders()
             });
             this.data.claims = this.data.claims.filter(c => c._id !== id);
-            this.initClaims(); // Re-render
             this.addNotification('Claim Removed', 'Settled claim has been deleted from history.', 'success');
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error deleting claim', err);
         }
@@ -1333,7 +1387,8 @@ const app = {
             this.data.trucks.push(this.normalizeRecord(saved));
             e.target.reset();
             this.addNotification('Success', `Vehicle ${saved.truckId} added to fleet`, 'success');
-            this.renderFleet();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error saving truck', err);
             this.addNotification('Error', 'Connection error. Is the server running?', 'alert');
@@ -1348,7 +1403,8 @@ const app = {
                 headers: this.authHeaders()
             });
             this.data.trucks = this.data.trucks.filter(t => t._id !== id);
-            this.renderFleet();
+            this.recomputeStats();
+            this.refreshCurrentView();
         } catch (err) {
             console.error('Error deleting truck', err);
         }
