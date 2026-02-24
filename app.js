@@ -12,6 +12,25 @@ const app = {
         trucks: []
     },
 
+    getAuthToken() {
+        return localStorage.getItem('swift_token');
+    },
+
+    authHeaders(extra = {}) {
+        const token = this.getAuthToken();
+        return token ? { ...extra, Authorization: `Bearer ${token}` } : extra;
+    },
+
+    normalizeRecord(item) {
+        if (!item || typeof item !== 'object') return item;
+        if (item._id == null && item.id != null) return { ...item, _id: String(item.id) };
+        return item;
+    },
+
+    normalizeList(list) {
+        return Array.isArray(list) ? list.map((item) => this.normalizeRecord(item)) : [];
+    },
+
     // Core Methods
     async init() {
         this.checkAuth();
@@ -24,26 +43,32 @@ const app = {
     },
 
     async fetchInitialData() {
+        if (!this.user) return;
+
         try {
             await fetch('/api/init'); // Seed if empty
-
+ 
             const [quotesRes, inventoryRes, claimsRes, statsRes, activitiesRes] = await Promise.all([
-                fetch('/api/quotes'),
-                fetch('/api/inventory'),
-                fetch('/api/claims'),
-                fetch('/api/stats'),
-                fetch('/api/activities')
+                fetch('/api/quotes', { headers: this.authHeaders() }),
+                fetch('/api/inventory', { headers: this.authHeaders() }),
+                fetch('/api/claims', { headers: this.authHeaders() }),
+                fetch('/api/stats', { headers: this.authHeaders() }),
+                fetch('/api/activities', { headers: this.authHeaders() })
             ]);
 
-            this.data.quotes = await quotesRes.json();
-            this.data.inventory = await inventoryRes.json();
-            this.data.claims = await claimsRes.json();
+            if (!quotesRes.ok || !inventoryRes.ok || !claimsRes.ok || !statsRes.ok || !activitiesRes.ok) {
+                throw new Error('Failed to fetch one or more protected resources');
+            }
+
+            this.data.quotes = this.normalizeList(await quotesRes.json());
+            this.data.inventory = this.normalizeList(await inventoryRes.json());
+            this.data.claims = this.normalizeList(await claimsRes.json());
             this.data.stats = await statsRes.json();
             this.data.activities = await activitiesRes.json();
 
-            const trucksRes = await fetch('/api/trucks');
+            const trucksRes = await fetch('/api/trucks', { headers: this.authHeaders() });
             if (trucksRes.ok) {
-                this.data.trucks = await trucksRes.json();
+                this.data.trucks = this.normalizeList(await trucksRes.json());
             } else {
                 console.error('Failed to fetch trucks');
                 this.data.trucks = [];
@@ -53,7 +78,7 @@ const app = {
             this.data.notifications = this.data.activities.map(a => ({
                 title: a.action,
                 message: a.details,
-                time: new Date(a.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
+                time: new Date(a.timestamp || a.time).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }),
                 type: 'info' // Default
             }));
 
@@ -127,21 +152,36 @@ const app = {
                         body: JSON.stringify({ username, password })
                     });
 
-                    const data = await res.json();
+                    const text = await res.text();
+                    let data = null;
+                    try {
+                        data = JSON.parse(text);
+                    } catch (_) {
+                        data = null;
+                    }
 
-                    if (data.success) {
+                    if (!res.ok) {
+                        errorMsg.textContent = (data && data.message) ? data.message : `Login failed (${res.status})`;
+                        errorMsg.style.display = 'block';
+                        return;
+                    }
+
+                    if (data && data.success) {
                         this.user = data.user;
                         localStorage.setItem('swift_user', JSON.stringify(data.user));
+                        localStorage.setItem('swift_token', data.token);
                         this.showApp();
                         this.updateSidebar();
+                        await this.fetchInitialData();
+                        this.render('dashboard');
                         loginForm.reset();
                         errorMsg.style.display = 'none';
                     } else {
-                        errorMsg.textContent = data.message;
+                        errorMsg.textContent = (data && data.message) ? data.message : 'Login failed';
                         errorMsg.style.display = 'block';
                     }
                 } catch (err) {
-                    errorMsg.textContent = 'Server error. Is Node running?';
+                    errorMsg.textContent = 'Network error: backend unreachable';
                     errorMsg.style.display = 'block';
                 }
             });
@@ -174,6 +214,7 @@ const app = {
     logout() {
         this.user = null;
         localStorage.removeItem('swift_user');
+        localStorage.removeItem('swift_token');
         this.showLogin();
     },
 
@@ -773,9 +814,10 @@ const app = {
         try {
             const res = await fetch(`/api/quotes/${quoteId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ truckId })
             });
+            if (!res.ok) throw new Error(`Failed to assign truck (${res.status})`);
             const updated = await res.json();
 
             const idx = this.data.quotes.findIndex(q => q._id === quoteId);
@@ -816,9 +858,10 @@ const app = {
         try {
             const res = await fetch(`/api/quotes/${quoteId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify({ status: 'Approved', amount })
             });
+            if (!res.ok) throw new Error(`Failed to approve quote (${res.status})`);
             const updated = await res.json();
 
             // Update local state
@@ -839,7 +882,10 @@ const app = {
         if (!confirm('Are you sure you want to delete this quote?')) return;
 
         try {
-            const res = await fetch(`/api/quotes/${id}`, { method: 'DELETE' });
+            const res = await fetch(`/api/quotes/${id}`, {
+                method: 'DELETE',
+                headers: this.authHeaders()
+            });
 
             if (res.ok) {
                 // Remove from local state
@@ -876,12 +922,13 @@ const app = {
         try {
             const res = await fetch('/api/quotes', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(newQuote)
             });
+            if (!res.ok) throw new Error(`Failed to save quote (${res.status})`);
             const savedQuote = await res.json();
 
-            this.data.quotes.unshift(savedQuote);
+            this.data.quotes.unshift(this.normalizeRecord(savedQuote));
             this.toggleQuoteModal();
             this.renderQuotesTable();
         } catch (err) {
@@ -979,7 +1026,7 @@ const app = {
         try {
             const res = await fetch(`/api/quotes/${quoteId}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(update)
             });
 
@@ -1038,12 +1085,13 @@ const app = {
         try {
             const res = await fetch('/api/inventory', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(newItem)
             });
+            if (!res.ok) throw new Error(`Failed to save inventory (${res.status})`);
             const savedItem = await res.json();
 
-            this.data.inventory.push(savedItem);
+            this.data.inventory.push(this.normalizeRecord(savedItem));
             e.target.reset();
             this.renderInventory();
         } catch (err) {
@@ -1053,7 +1101,10 @@ const app = {
 
     async removeInventory(id) {
         try {
-            await fetch(`/api/inventory/${id}`, { method: 'DELETE' });
+            await fetch(`/api/inventory/${id}`, {
+                method: 'DELETE',
+                headers: this.authHeaders()
+            });
             this.data.inventory = this.data.inventory.filter(i => i._id !== id);
             this.renderInventory();
         } catch (err) {
@@ -1130,9 +1181,10 @@ const app = {
         try {
             const res = await fetch(`/api/claims/${id}`, {
                 method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(update)
             });
+            if (!res.ok) throw new Error(`Failed to update claim (${res.status})`);
             const updated = await res.json();
 
             const idx = this.data.claims.findIndex(c => c._id === id);
@@ -1149,7 +1201,10 @@ const app = {
     async removeClaim(id) {
         if (!confirm('Are you sure you want to remove this settled claim?')) return;
         try {
-            await fetch(`/api/claims/${id}`, { method: 'DELETE' });
+            await fetch(`/api/claims/${id}`, {
+                method: 'DELETE',
+                headers: this.authHeaders()
+            });
             this.data.claims = this.data.claims.filter(c => c._id !== id);
             this.initClaims(); // Re-render
             this.addNotification('Claim Removed', 'Settled claim has been deleted from history.', 'success');
@@ -1249,7 +1304,7 @@ const app = {
         try {
             const res = await fetch('/api/trucks', {
                 method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                headers: this.authHeaders({ 'Content-Type': 'application/json' }),
                 body: JSON.stringify(newTruck)
             });
 
@@ -1260,7 +1315,7 @@ const app = {
             }
 
             const saved = await res.json();
-            this.data.trucks.push(saved);
+            this.data.trucks.push(this.normalizeRecord(saved));
             e.target.reset();
             this.addNotification('Success', `Vehicle ${saved.truckId} added to fleet`, 'success');
             this.renderFleet();
@@ -1273,12 +1328,19 @@ const app = {
     async removeTruck(id) {
         if (!confirm('Are you sure you want to decommission this vehicle?')) return;
         try {
-            await fetch(`/api/trucks/${id}`, { method: 'DELETE' });
+            await fetch(`/api/trucks/${id}`, {
+                method: 'DELETE',
+                headers: this.authHeaders()
+            });
             this.data.trucks = this.data.trucks.filter(t => t._id !== id);
             this.renderFleet();
         } catch (err) {
             console.error('Error deleting truck', err);
         }
+    },
+
+    deleteTruck(id) {
+        return this.removeTruck(id);
     }
 };
 
