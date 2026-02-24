@@ -56,6 +56,13 @@ const app = {
                 fetch('/api/activities', { headers: this.authHeaders() })
             ]);
 
+            const authFailed = [quotesRes, inventoryRes, claimsRes, statsRes, activitiesRes]
+                .some((r) => r.status === 401 || r.status === 403);
+            if (authFailed) {
+                this.logout();
+                return;
+            }
+
             if (!quotesRes.ok || !inventoryRes.ok || !claimsRes.ok || !statsRes.ok || !activitiesRes.ok) {
                 throw new Error('Failed to fetch one or more protected resources');
             }
@@ -106,7 +113,15 @@ const app = {
 
     checkAuth() {
         const user = localStorage.getItem('swift_user');
+        const token = this.getAuthToken();
         if (user) {
+            if (!token) {
+                localStorage.removeItem('swift_user');
+                this.user = null;
+                this.showLogin();
+                return;
+            }
+
             this.user = JSON.parse(user);
 
             // Auto-fix legacy Client role to Staff since we are now Admin-only
