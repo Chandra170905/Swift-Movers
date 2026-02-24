@@ -16,11 +16,24 @@ const ADMIN_PASS = "admin123";
 // const bcrypt = require('bcryptjs');
 
 // Simple JSON DB functions
-const dbPath = (file) => path.join(process.cwd(), "db", file);
-const readDB = (file) =>
-  JSON.parse(fs.readFileSync(dbPath(file), "utf-8"));
-const writeDB = (file, data) =>
-  fs.writeFileSync(dbPath(file), JSON.stringify(data, null, 2));
+const dbPath = (file) => path.join(__dirname, "data", file);
+
+// Function to read JSON data from the file
+const readDB = (file) => {
+  const filePath = dbPath(file);
+  if (!fs.existsSync(filePath)) return []; // Return empty array if file doesn't exist
+  const data = fs.readFileSync(filePath, "utf-8");
+  return JSON.parse(data);
+};
+
+// Function to write JSON data to the file
+const writeDB = (file, data) => {
+  const filePath = dbPath(file);
+  fs.mkdirSync(path.dirname(filePath), { recursive: true });
+  fs.writeFileSync(filePath, JSON.stringify(data, null, 2), "utf-8");
+};
+
+export { readDB, writeDB };
 
 // Middleware
 app.use(express.static(__dirname));
